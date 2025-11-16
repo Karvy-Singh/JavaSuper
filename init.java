@@ -1,7 +1,15 @@
 import java.util.*;
-import java.io.ByteArrayInputStream;
+import java.io.*;
 import java.sql.*;
 import GetImages.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.OutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 abstract class Person {
   String name;
@@ -190,6 +198,23 @@ class Product {
     }
   }
 
+  public void displayDeetsF(PrintWriter out) {
+    out.println("ASIN: " + ASIN);
+    out.println("Name: " + name);
+    out.println("Ratings: " + ratings);
+    out.println("Price: " + price);
+    out.println("Quantity: " + qty);
+    out.println("Description: " + description);
+
+    if (!reviews.isEmpty()) {
+      out.println("---- Reviews ----");
+      for (Review r : reviews) {
+        r.DisplayReviewF(out);
+        out.println("-----------------");
+      }
+    }
+  }
+
   public int asinNum() {
     return ASIN;
   }
@@ -301,6 +326,13 @@ class Review {
     System.out.println("Ratings:" + ratings);
     System.out.println("Review:" + review);
   }
+
+  public void DisplayReviewF(PrintWriter out) {
+    out.println("Customer name:" + cust_name);
+    out.println("Ratings:" + ratings);
+    out.println("Review:" + review);
+  }
+
 }
 
 class Customer extends Person {
@@ -619,7 +651,7 @@ class bm25 {
   }
 
   // Perform BM25 search
-  private static void search(String query, List<Product> products, Connection conn) throws SQLException {
+  private static void search(String query, List<Product> products, Connection conn) throws SQLException, IOException {
     if (query == null || query.trim().isEmpty()) {
       System.out.println("Empty query, nothing to search.");
       return;
@@ -694,15 +726,17 @@ class bm25 {
     // Print results
     System.out.println("\nSearch results (best to worst):");
     boolean anyResults = false;
+    PrintWriter out = new PrintWriter(new FileWriter("output.txt", true));
     for (int i = 0; i < 10; i++) {
       if (products.get(i).score > 0.0) {
         anyResults = true;
         products.get(i).loadReviews(conn);
-        products.get(i).displayDeets();
+        products.get(i).displayDeetsF(out);
 
       }
 
     }
+    out.close();
 
     if (!anyResults) {
       System.out.println("No matching products found.");
@@ -710,15 +744,190 @@ class bm25 {
 
   }
 
-  public static void initBM25(String query, List<Product> products, Connection conn) throws SQLException {
+  public static void initBM25AI(String query, List<Product> products, Connection conn)
+      throws SQLException, IOException {
     preprocess(products);
     search(query, products, conn);
+    RankProductsWithAI rank = new RankProductsWithAI();
+    String raw = rank.AIranking();
+    // 1. Isolate the object part { ... }
+    int objStart = raw.indexOf('{');
+    int objEnd = raw.lastIndexOf('}');
+    if (objStart == -1 || objEnd == -1 || objEnd <= objStart) {
+      throw new IllegalArgumentException("No valid object found");
+    }
+    String obj = raw.substring(objStart + 1, objEnd); // drop outer braces
+
+    // 2. Extract ASIN array substring: find "ASIN" then [ ... ]
+    int asinKeyIndex = obj.indexOf("ASIN");
+    if (asinKeyIndex == -1) {
+      throw new IllegalArgumentException("ASIN field not found");
+    }
+
+    int asinArrayStart = obj.indexOf('[', asinKeyIndex);
+    int asinArrayEnd = obj.indexOf(']', asinArrayStart);
+    if (asinArrayStart == -1 || asinArrayEnd == -1) {
+      throw new IllegalArgumentException("ASIN array not found");
+    }
+
+    String asinInner = obj.substring(asinArrayStart + 1, asinArrayEnd); // "236","4","16"
+
+    // 3. Parse ASIN array items into int[]
+    String[] parts = asinInner.split(",");
+    int[] asin = new int[parts.length];
+    for (int i = 0; i < parts.length; i++) {
+      String cleaned = parts[i]
+          .replace("\"", "")
+          .replace("`", "")
+          .trim();
+      asin[i] = Integer.parseInt(cleaned);
+    }
+
+    // 4. (Optional) extract reasoning as a string
+    String reasoning = null;
+    int reasoningKeyIndex = obj.indexOf("Reasoning");
+    if (reasoningKeyIndex != -1) {
+      int colon = obj.indexOf(':', reasoningKeyIndex);
+      if (colon != -1) {
+        int quoteStart = obj.indexOf('"', colon + 1);
+        if (quoteStart != -1) {
+          int quoteEnd = obj.indexOf('"', quoteStart + 1);
+          if (quoteEnd != -1) {
+            reasoning = obj.substring(quoteStart + 1, quoteEnd);
+          }
+        }
+      }
+    }
+    System.out.println(reasoning);
+    for (int i : asin) {
+      Product p = Product.loadById(conn, i);
+      p.loadReviews(conn);
+      p.displayDeets();
+    }
+
   }
 
 }
 
+class RankProductsWithAI {
+
+  // CHANGE THIS to your real API URL
+  private static final String API_URL = "https://api.openai.com/v1/chat/completions";
+  // CHANGE THIS to your real API key
+  private static final String API_KEY = "";
+  // CHANGE THIS to your real model name
+  private static final String MODEL_NAME = "gpt-4o-mini";
+
+  public static String AIranking() {
+    try {
+      // 1. Read the products file into a big string
+      String productsText = new String(
+          Files.readAllBytes(Paths.get("output.txt")),
+          StandardCharsets.UTF_8);
+
+      // 2. Build the prompt for the AI
+      String prompt = buildPrompt(productsText);
+
+      // 3. Call the AI API and get the raw JSON response
+      String apiResponse = callAiApi(prompt);
+
+      // 4. Extract the ASIN list from the AI response
+      // Here we assume the AI returns something like:
+      // { "choices": [ { "message": { "content": "[\"113\",\"222\",\"333\"]" } } ] }
+      String asinJsonArray = extractContentField(apiResponse);
+
+      // 5. (Optional) parse the JSON array or just print it
+      return asinJsonArray;
+
+    } catch (Exception e) {
+      return e.getMessage();
+    }
+  }
+
+  private static String buildPrompt(String productsText) {
+    return "You are ranking products. I will give you 10 products in a specific text format.\n" +
+        "Each product has: ASIN, Name, Ratings, Price, Quantity, Description, Reviews.\n" +
+        "Rank them by overall value considering higher ratings, good reviews, and lower price.\n" +
+        "Return ONLY a JSON array of two feilds one will be the top 3 ASINs and second will be your reasoning of why you chose those products in plain text but readable format, like:\n"
+        +
+        "ASIN: [\"113\",\"B07ABC1234\",\"X9YZ001\"]\n" +
+        "Reasoning: ..." +
+        "Do not include any extra text.\n\n" +
+        "Here are the products:\n\n" +
+        productsText;
+  }
+
+  private static String callAiApi(String prompt) throws IOException {
+    // Build JSON body for the AI API (OpenAI-style chat example)
+    String jsonBody = "{"
+        + "\"model\":\"" + MODEL_NAME + "\","
+        + "\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(prompt) + "}],"
+        + "\"temperature\":0"
+        + "}";
+
+    URL url = new URL(API_URL);
+    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+    conn.setRequestMethod("POST");
+    conn.setDoOutput(true);
+    conn.setRequestProperty("Content-Type", "application/json");
+    conn.setRequestProperty("Authorization", "Bearer " + API_KEY);
+
+    // Send request body
+    try (OutputStream os = conn.getOutputStream()) {
+      byte[] input = jsonBody.getBytes(StandardCharsets.UTF_8);
+      os.write(input, 0, input.length);
+    }
+
+    // Read response
+    try (InputStream is = conn.getInputStream()) {
+      return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  // Very tiny helper to JSON-escape a string (basic version)
+  private static String jsonString(String s) {
+    String escaped = s.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r");
+    return "\"" + escaped + "\"";
+  }
+
+  private static String extractContentField(String apiResponse) {
+    String key = "\"content\":";
+    int idx = apiResponse.indexOf(key);
+    if (idx == -1) {
+      return "[]";
+    }
+    int start = apiResponse.indexOf('"', idx + key.length());
+    int end = apiResponse.indexOf('"', start + 1);
+
+    // Handle escaped quotes inside content – this is minimal, for demo only.
+    StringBuilder sb = new StringBuilder();
+    boolean escape = false;
+    for (int i = start + 1; i < apiResponse.length(); i++) {
+      char c = apiResponse.charAt(i);
+      if (escape) {
+        sb.append(c);
+        escape = false;
+      } else {
+        if (c == '\\') {
+          escape = true;
+        } else if (c == '"') {
+          break;
+        } else {
+          sb.append(c);
+        }
+      }
+    }
+    // Now sb should contain something like: ["113","222","333"]
+    return sb.toString();
+  }
+}
+
 public class init {
-  public static void main(String[] args) {
+  public static void main(String[] args) throws IOException {
 
     // getimg imgGetter = new getimg();
     // try {
@@ -736,7 +945,7 @@ public class init {
 
       List<Product> prods = Product.loadAll(conn);
       if (prods != null) {
-        irObj.initBM25("Wireless mouse", prods, conn);
+        irObj.initBM25AI("Wireless mouse", prods, conn);
       }
 
       // Example 1: Load one product by id and its reviews
