@@ -31,6 +31,10 @@ class Product {
   int price;
   int qty;
   String description;
+
+  List<String> tokens; // tokenized name + description
+  int docLength; // number of tokens in this product
+  double score; // BM25 score for current query
   ArrayList<Review> reviews = new ArrayList<>();
 
   public Product(int a, String n, int r, int p, int q, String d) {
@@ -42,21 +46,21 @@ class Product {
     description = d;
   }
 
-
   // Load ALL products (without reviews)
   public static List<Product> loadAll(Connection conn) throws SQLException {
     String sql = "SELECT product_id, name, rating, price, quantity, description FROM Products";
     List<Product> result = new ArrayList<>();
 
     try (PreparedStatement ps = conn.prepareStatement(sql);
-         ResultSet rs = ps.executeQuery()) {
+        ResultSet rs = ps.executeQuery()) {
 
       while (rs.next()) {
         int id = rs.getInt("product_id");
         String n = rs.getString("name");
 
         int r = rs.getInt("rating");
-        if (rs.wasNull()) r = 0;  // rating is nullable in schema
+        if (rs.wasNull())
+          r = 0; // rating is nullable in schema
 
         int p = rs.getInt("price");
         int q = rs.getInt("quantity");
@@ -72,16 +76,18 @@ class Product {
   // Load ONE product by id (without reviews)
   public static Product loadById(Connection conn, int asin) throws SQLException {
     String sql = "SELECT product_id, name, rating, price, quantity, description " +
-                 "FROM Products WHERE product_id = ?";
+        "FROM Products WHERE product_id = ?";
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
       ps.setInt(1, asin);
       try (ResultSet rs = ps.executeQuery()) {
-        if (!rs.next()) return null;
+        if (!rs.next())
+          return null;
 
         int id = rs.getInt("product_id");
         String n = rs.getString("name");
         int r = rs.getInt("rating");
-        if (rs.wasNull()) r = 0;
+        if (rs.wasNull())
+          r = 0;
         int p = rs.getInt("price");
         int q = rs.getInt("quantity");
         String d = rs.getString("description");
@@ -94,7 +100,7 @@ class Product {
   // Load products for a specific seller_username (inventory)
   public static List<Product> loadBySeller(Connection conn, String sellerUsername) throws SQLException {
     String sql = "SELECT product_id, name, rating, price, quantity, description " +
-                 "FROM Products WHERE seller_username = ?";
+        "FROM Products WHERE seller_username = ?";
     List<Product> result = new ArrayList<>();
 
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -104,7 +110,8 @@ class Product {
           int id = rs.getInt("product_id");
           String n = rs.getString("name");
           int r = rs.getInt("rating");
-          if (rs.wasNull()) r = 0;
+          if (rs.wasNull())
+            r = 0;
           int p = rs.getInt("price");
           int q = rs.getInt("quantity");
           String d = rs.getString("description");
@@ -116,9 +123,9 @@ class Product {
   }
 
   // Load products that appear in a customer's cart (by username)
-  public static List<Product> loadCartProductsForCustomer(Connection conn, String customerUsername) throws SQLException {
-    String sql =
-        "SELECT p.product_id, p.name, p.rating, p.price, p.quantity, p.description " +
+  public static List<Product> loadCartProductsForCustomer(Connection conn, String customerUsername)
+      throws SQLException {
+    String sql = "SELECT p.product_id, p.name, p.rating, p.price, p.quantity, p.description " +
         "FROM CartItems ci " +
         "JOIN Products p ON p.product_id = ci.product_id " +
         "WHERE ci.customer_username = ?";
@@ -131,7 +138,8 @@ class Product {
           int id = rs.getInt("product_id");
           String n = rs.getString("name");
           int r = rs.getInt("rating");
-          if (rs.wasNull()) r = 0;
+          if (rs.wasNull())
+            r = 0;
           int p = rs.getInt("price");
           int q = rs.getInt("quantity");
           String d = rs.getString("description");
@@ -142,7 +150,8 @@ class Product {
     return result;
   }
 
-  // Load reviews into this Product (helper instance method using Review.loadByProduct)
+  // Load reviews into this Product (helper instance method using
+  // Review.loadByProduct)
   public void loadReviews(Connection conn) throws SQLException {
     this.reviews.clear();
     this.reviews.addAll(Review.loadByProduct(conn, this.ASIN));
@@ -251,7 +260,6 @@ class Review {
     review = r;
   }
 
-
   // All reviews for a given product_id
   public static List<Review> loadByProduct(Connection conn, int productId) throws SQLException {
     String sql = "SELECT customer_username, rating, review FROM Reviews WHERE product_id = ?";
@@ -277,7 +285,7 @@ class Review {
     List<Review> result = new ArrayList<>();
 
     try (PreparedStatement ps = conn.prepareStatement(sql);
-         ResultSet rs = ps.executeQuery()) {
+        ResultSet rs = ps.executeQuery()) {
       while (rs.next()) {
         String custUser = rs.getString("customer_username");
         int rt = rs.getInt("rating");
@@ -287,7 +295,6 @@ class Review {
     }
     return result;
   }
-
 
   public void DisplayReview() {
     System.out.println("Customer name:" + cust_name);
@@ -304,12 +311,13 @@ class Customer extends Person {
     super(n, e, p, a);
   }
 
-
   // Helper: phone TEXT -> long
   private static long parsePhone(String phone) {
-    if (phone == null) return 0L;
+    if (phone == null)
+      return 0L;
     String digits = phone.replaceAll("\\D", "");
-    if (digits.isEmpty()) return 0L;
+    if (digits.isEmpty())
+      return 0L;
     try {
       return Long.parseLong(digits);
     } catch (NumberFormatException e) {
@@ -323,7 +331,7 @@ class Customer extends Person {
     List<Customer> result = new ArrayList<>();
 
     try (PreparedStatement ps = conn.prepareStatement(sql);
-         ResultSet rs = ps.executeQuery()) {
+        ResultSet rs = ps.executeQuery()) {
       while (rs.next()) {
         String username = rs.getString("username");
         String fullName = rs.getString("full_name");
@@ -346,7 +354,8 @@ class Customer extends Person {
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
       ps.setString(1, username);
       try (ResultSet rs = ps.executeQuery()) {
-        if (!rs.next()) return null;
+        if (!rs.next())
+          return null;
 
         String fullName = rs.getString("full_name");
         String email = rs.getString("email");
@@ -364,13 +373,13 @@ class Customer extends Person {
   // Load ONE customer by username, including products in their cart
   public static Customer loadByUsernameWithCart(Connection conn, String username) throws SQLException {
     Customer c = loadByUsername(conn, username);
-    if (c == null) return null;
+    if (c == null)
+      return null;
 
     List<Product> cartProducts = Product.loadCartProductsForCustomer(conn, username);
     c.product_cart.addAll(cartProducts);
     return c;
   }
-
 
   public void addToCart(Product p) {
     product_cart.add(p);
@@ -407,11 +416,12 @@ class Seller extends Person {
     super(n, e, p, a);
   }
 
-
   private static long parsePhone(String phone) {
-    if (phone == null) return 0L;
+    if (phone == null)
+      return 0L;
     String digits = phone.replaceAll("\\D", "");
-    if (digits.isEmpty()) return 0L;
+    if (digits.isEmpty())
+      return 0L;
     try {
       return Long.parseLong(digits);
     } catch (NumberFormatException e) {
@@ -425,7 +435,7 @@ class Seller extends Person {
     List<Seller> result = new ArrayList<>();
 
     try (PreparedStatement ps = conn.prepareStatement(sql);
-         ResultSet rs = ps.executeQuery()) {
+        ResultSet rs = ps.executeQuery()) {
       while (rs.next()) {
         String username = rs.getString("username");
         String displayName = rs.getString("display_name");
@@ -448,7 +458,8 @@ class Seller extends Person {
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
       ps.setString(1, username);
       try (ResultSet rs = ps.executeQuery()) {
-        if (!rs.next()) return null;
+        if (!rs.next())
+          return null;
 
         String displayName = rs.getString("display_name");
         String email = rs.getString("email");
@@ -466,12 +477,12 @@ class Seller extends Person {
   // Load seller + their inventory in one go
   public static Seller loadByUsernameWithInventory(Connection conn, String username) throws SQLException {
     Seller s = loadByUsername(conn, username);
-    if (s == null) return null;
+    if (s == null)
+      return null;
     List<Product> inventory = Product.loadBySeller(conn, username);
     s.product_inventory.addAll(inventory);
     return s;
   }
-
 
   public void addProduct() {
     Scanner sc = new Scanner(System.in);
@@ -547,58 +558,226 @@ class Seller extends Person {
 
 }
 
+class bm25 {
+  // BM25 parameters (common defaults)
+  private static final double K1 = 1.5;
+  private static final double B = 0.75;
+
+  // term -> in how many products this term appears
+  private static Map<String, Integer> docFreq = new HashMap<>();
+
+  private static double avgDocLength = 0.0;
+  private static int totalDocLength = 0;
+
+  // Preprocess all products: tokenize, compute docFreq and avgDocLength
+  private static void preprocess(List<Product> products) {
+    for (Product p : products) {
+      // Combine name + description as the document text
+      String fullText = p.name + " " + p.description;
+
+      // Tokenize
+      List<String> tokens = tokenize(fullText);
+      p.tokens = tokens;
+      p.docLength = tokens.size();
+      totalDocLength += p.docLength;
+
+      // Update document frequency (df) for each unique term in this product
+      Set<String> uniqueTerms = new HashSet<>(tokens);
+      for (String term : uniqueTerms) {
+        Integer old = docFreq.get(term);
+        if (old == null) {
+          docFreq.put(term, 1);
+        } else {
+          docFreq.put(term, old + 1);
+        }
+      }
+    }
+
+    if (!products.isEmpty()) {
+      avgDocLength = (double) totalDocLength / products.size();
+    } else {
+      avgDocLength = 0.0;
+    }
+  }
+
+  // Tokenizer: lowercase, split on non-letters, remove empty tokens
+  private static List<String> tokenize(String text) {
+    text = text.toLowerCase();
+    String[] rawTokens = text.split("\\W+"); // split on anything not a-z0-9
+    List<String> tokens = new ArrayList<>();
+
+    for (String t : rawTokens) {
+      if (t == null)
+        continue;
+      t = t.trim();
+      if (t.length() == 0)
+        continue;
+      tokens.add(t);
+    }
+
+    return tokens;
+  }
+
+  // Perform BM25 search
+  private static void search(String query, List<Product> products, Connection conn) throws SQLException {
+    if (query == null || query.trim().isEmpty()) {
+      System.out.println("Empty query, nothing to search.");
+      return;
+    }
+
+    // Tokenize query
+    List<String> queryTermsList = tokenize(query);
+    // Use unique query terms (BM25 usually sums over unique terms)
+    Set<String> queryTerms = new HashSet<>(queryTermsList);
+
+    // Number of documents
+    double N = products.size();
+
+    // Compute score for each product
+    for (Product p : products) {
+      // Build term frequencies for this product
+      Map<String, Integer> termFreq = new HashMap<>();
+      for (String token : p.tokens) {
+        Integer count = termFreq.get(token);
+        if (count == null) {
+          termFreq.put(token, 1);
+        } else {
+          termFreq.put(token, count + 1);
+        }
+      }
+
+      double score = 0.0;
+
+      for (String qTerm : queryTerms) {
+        Integer df = docFreq.get(qTerm);
+        if (df == null) {
+          // query term never appears in any product
+          continue;
+        }
+
+        Integer tfObj = termFreq.get(qTerm);
+        if (tfObj == null || tfObj == 0) {
+          // term does not appear in this product
+          continue;
+        }
+
+        double tf = tfObj;
+        double dfValue = df;
+
+        // IDF part of BM25
+        // Note: +1 inside log is to keep it non-negative and simple for beginners
+        double idf = Math.log(((N - dfValue + 0.5) / (dfValue + 0.5)) + 1.0);
+
+        // BM25 term score
+        double numerator = tf * (K1 + 1.0);
+        double denominator = tf + K1 * (1.0 - B + B * (p.docLength / avgDocLength));
+        double termScore = idf * (numerator / denominator);
+
+        score += termScore;
+      }
+
+      p.score = score;
+    }
+
+    // Sort products by score descending
+    Collections.sort(products, new Comparator<Product>() {
+      public int compare(Product a, Product b) {
+        // bigger score first
+        if (a.score < b.score)
+          return 1;
+        if (a.score > b.score)
+          return -1;
+        return 0;
+      }
+    });
+
+    // Print results
+    System.out.println("\nSearch results (best to worst):");
+    boolean anyResults = false;
+    for (int i = 0; i < 10; i++) {
+      if (products.get(i).score > 0.0) {
+        anyResults = true;
+        products.get(i).loadReviews(conn);
+        products.get(i).displayDeets();
+
+      }
+
+    }
+
+    if (!anyResults) {
+      System.out.println("No matching products found.");
+    }
+
+  }
+
+  public static void initBM25(String query, List<Product> products, Connection conn) throws SQLException {
+    preprocess(products);
+    search(query, products, conn);
+  }
+
+}
+
 public class init {
   public static void main(String[] args) {
-    getimg imgGetter = new getimg();
-    try {
-      imgGetter.getImages("cats");
-    } catch (Exception e) {
-      System.out.println(e);
-    }
+
+    // getimg imgGetter = new getimg();
+    // try {
+    // imgGetter.getImages("cats");
+    // } catch (Exception e) {
+    // System.out.println(e);
+    // }
 
     // ===== DEMO: using the static load methods with SQLite =====
     String dbPath = "shop.db"; // adjust to your actual DB file
     String url = "jdbc:sqlite:" + dbPath;
+    bm25 irObj = new bm25();
 
     try (Connection conn = DriverManager.getConnection(url)) {
 
+      List<Product> prods = Product.loadAll(conn);
+      if (prods != null) {
+        irObj.initBM25("Wireless mouse", prods, conn);
+      }
+
       // Example 1: Load one product by id and its reviews
-      Product p = Product.loadById(conn, 1);
-      if (p != null) {
-        p.loadReviews(conn);
-        System.out.println("=== Product 1 (with reviews) ===");
-        p.displayDeets();
-      }
+      // Product p = Product.loadById(conn, 1);
+      // if (p != null) {
+      // p.loadReviews(conn);
+      // System.out.println("=== Product 1 (with reviews) ===");
+      // p.displayDeets();
+      // }
 
-      // Example 2: Load a seller with their inventory
-      Seller s = Seller.loadByUsernameWithInventory(conn, "seller_novatech");
-      if (s != null) {
-        System.out.println("\n=== Seller 'seller_novatech' (with inventory) ===");
-        s.displayDeets();
-        s.showInventory();
-      }
+      // // Example 2: Load a seller with their inventory
+      // Seller s = Seller.loadByUsernameWithInventory(conn, "seller_novatech");
+      // if (s != null) {
+      // System.out.println("\n=== Seller 'seller_novatech' (with inventory) ===");
+      // s.displayDeets();
+      // s.showInventory();
+      // }
 
-      // Example 3: Load a customer with their cart
-      Customer c = Customer.loadByUsernameWithCart(conn, "cust_arya");
-      if (c != null) {
-        System.out.println("\n=== Customer 'cust_arya' (with cart) ===");
-        c.displayDeets();
-        c.showCart();
-      }
+      // // Example 3: Load a customer with their cart
+      // Customer c = Customer.loadByUsernameWithCart(conn, "cust_arya");
+      // if (c != null) {
+      // System.out.println("\n=== Customer 'cust_arya' (with cart) ===");
+      // c.displayDeets();
+      // c.showCart();
+      // }
 
     } catch (SQLException e) {
       e.printStackTrace();
     }
 
-
     // // --- People (also exercises Person.displayDeets) ---
-    // Seller s = new Seller("Alice Seller", "alice@shop.com", 9876543210L, "123 Market St");
-    // Customer c = new Customer("Carl Customer", "carl@mail.com", 9123456780L, "45 River Rd");
+    // Seller s = new Seller("Alice Seller", "alice@shop.com", 9876543210L, "123
+    // Market St");
+    // Customer c = new Customer("Carl Customer", "carl@mail.com", 9123456780L, "45
+    // River Rd");
     // s.displayDeets();
     // c.displayDeets();
     //
     // // --- Products + Reviews (displayDeets, asinNum, Review.DisplayReview) ---
-    // Product p1 = new Product(111, "Keyboard", 4, 1999, 10, "Compact mechanical keyboard");
+    // Product p1 = new Product(111, "Keyboard", 4, 1999, 10, "Compact mechanical
+    // keyboard");
     // Product p2 = new Product(222, "Mouse", 5, 999, 25, "Wireless mouse");
     // Review r1 = new Review("Bob", 5, "Great build quality!");
     // p1.reviews.add(r1);
@@ -620,25 +799,25 @@ public class init {
     //
     // // --- Product.updateDeets via Seller.updateProduct (hardcoded System.in) ---
     // String updateInputs = String.join("\n",
-    //   "333",         // new ASIN
-    //   "Mouse Pro",   // new name
-    //   "4",           // ratings
-    //   "1299",        // price
-    //   "30",          // qty
-    //   "Upgraded sensor"
+    // "333", // new ASIN
+    // "Mouse Pro", // new name
+    // "4", // ratings
+    // "1299", // price
+    // "30", // qty
+    // "Upgraded sensor"
     // );
     // System.setIn(new ByteArrayInputStream(updateInputs.getBytes()));
-    // s.updateProduct(222);          // calls Product.updateDeets() internally
-    // s.showSingleProduct(333);      // ASIN changed from 222 -> 333
+    // s.updateProduct(222); // calls Product.updateDeets() internally
+    // s.showSingleProduct(333); // ASIN changed from 222 -> 333
     //
     // // --- Seller.addProduct (hardcoded System.in) ---
     // String addInputs = String.join("\n",
-    //   "444",   // ASIN (int)
-    //   "Mouse X",
-    //   "5",     // ratings (int)
-    //   "1499",  // price (int)
-    //   "12",    // qty (int)
-    //   ""       // description (empty)
+    // "444", // ASIN (int)
+    // "Mouse X",
+    // "5", // ratings (int)
+    // "1499", // price (int)
+    // "12", // qty (int)
+    // "" // description (empty)
     // ) + "\n";
     //
     // System.setIn(new ByteArrayInputStream(addInputs.getBytes()));
