@@ -1,6 +1,6 @@
 import java.util.*;
 import java.io.ByteArrayInputStream;
-import java.sql.*;   // <<< added for JDBC
+import java.sql.*;
 import GetImages.*;
 
 abstract class Person {
@@ -25,9 +25,9 @@ abstract class Person {
 }
 
 class Product {
-  int ASIN;         // maps to product_id in DB
+  int ASIN;
   String name;
-  int ratings;      // can be 0 if DB rating is NULL
+  int ratings;
   int price;
   int qty;
   String description;
@@ -472,7 +472,6 @@ class Seller extends Person {
     return s;
   }
 
-  // ====================================================
 
   public void addProduct() {
     Scanner sc = new Scanner(System.in);
